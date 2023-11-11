@@ -6,6 +6,9 @@ go_executable: /usr/bin/go
 ffmpeg_executable: /usr/bin/ffmpeg
 debug_mode: false
 
+use_github_binaries: false              # Set to true if you want to use pre-built binaries from GitHub
+architecture:                           # Set it to aarch64 or amd64 based on your machine architecture to update using prebuilt releases
+
 telegram:
   bot_token: 186779
   #api_url: http://localhost:8082        # Uncomment if you have a local bot API server running (for bypassing file size limits)
@@ -16,6 +19,9 @@ telegram:
   target_chat_id: -100423424              # This is the chat where messages will be forwarded (note the "100" prefix of a supergroup)
   skip_video_stickers: false              # Setting this as true will stop trying to convert telegram video stickers to webp and sending them
   skip_setting_commands: false            # This will not show you list of commands when you start typing / in telegram
+
+  send_my_presence: false                 # Setting this to true will show your account as online to others whenever you send a message using Telegram
+  send_my_read_receipts: false            # Setting this to true will mark all unread messages in a chat as read when you send a new message using Telegram
 
 whatsapp:
   session_name: watgbridge        # This will appear in your Linked Devices in mobile app
@@ -42,6 +48,8 @@ whatsapp:
   skip_status: false
   skip_contacts: false
   skip_locations: false
+  skip_profile_picture_updates: false
+  skip_group_settings_updates: false   # This includes joins, leaves, name change, etc.
   skip_chat_details: true
   send_revoked_message_updates: false
   whatsmeow_debug_mode: false

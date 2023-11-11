@@ -17,6 +17,9 @@ type Config struct {
 	FfmpegExecutable string `yaml:"ffmpeg_executable"`
 	DebugMode        bool   `yaml:"debug_mode"`
 
+	UseGithHubBinaries bool   `yaml:"use_github_binaries"`
+	Architecture       string `yaml:"architecture"`
+
 	Telegram struct {
 		BotToken            string  `yaml:"bot_token"`
 		APIURL              string  `yaml:"api_url"`
@@ -26,6 +29,8 @@ type Config struct {
 		SelfHostedAPI       bool    `yaml:"self_hosted_api"`
 		SkipVideoStickers   bool    `yaml:"skip_video_stickers"`
 		SkipSettingCommands bool    `yaml:"skip_setting_commands"`
+		SendMyPresence      bool    `yaml:"send_my_presence"`
+		SendMyReadReceipts  bool    `yaml:"send_my_read_receipts"`
 	} `yaml:"telegram"`
 
 	WhatsApp struct {
@@ -51,6 +56,8 @@ type Config struct {
 		SkipStickers                   bool     `yaml:"skip_stickers"`
 		SkipContacts                   bool     `yaml:"skip_contacts"`
 		SkipLocations                  bool     `yaml:"skip_locations"`
+		SkipProfilePictureUpdates      bool     `yaml:"skip_profile_picture_updates"`
+		SkipGroupSettingsUpdates       bool     `yaml:"skip_group_settings_updates"`
 		SkipChatDetails                bool     `yaml:"skip_chat_details"`
 		SendRevokedMessageUpdates      bool     `yaml:"send_revoked_message_updates"`
 		WhatsmeowDebugMode             bool     `yaml:"whatsmeow_debug_mode"`

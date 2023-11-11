@@ -23,6 +23,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	waTypes "go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 type waTgBridgeCommand struct {
@@ -86,6 +87,10 @@ func AddTelegramHandlers() {
 			"Set the target WhatsApp private chat for current thread",
 		},
 		waTgBridgeCommand{
+			handlers.NewCommand("unlinkthread", UnlinkThreadHandler),
+			"Unlink the current thread from its WhatsApp chat",
+		},
+		waTgBridgeCommand{
 			handlers.NewCommand("getprofilepicture", GetProfilePictureHandler),
 			"Get the profile picture of user or group using its ID",
 		},
@@ -104,6 +109,14 @@ func AddTelegramHandlers() {
 		waTgBridgeCommand{
 			handlers.NewCommand("help", HelpCommandHandler),
 			"Get all the available commands",
+		},
+		waTgBridgeCommand{
+			handlers.NewCommand("block", BlockCommandHandler),
+			"Block a user in WhatsApp",
+		},
+		waTgBridgeCommand{
+			handlers.NewCommand("unblock", UnblockCommandHandler),
+			"Unblock a user in WhatsApp",
 		},
 	)
 
@@ -194,19 +207,19 @@ func StartCommandHandler(b *gotgbot.Bot, c *ext.Context) error {
 		upTime        = time.Now().UTC().Sub(startTime).Round(time.Second)
 	)
 
-	startMessage := "Hi! The bot is up and running\n\n"
-	startMessage += fmt.Sprintf("• <b>Up Since</b>: %s [ %s ]\n",
+	startMessage := "<b>Hi! The Bot is Up and Running!</b>\n\n"
+	startMessage += fmt.Sprintf("  <b>Up Since</b>: %s\n  <b>Total Uptime</b>: %s\n",
 		startTime.In(localLocation).Format(timeFormat),
 		upTime.String(),
 	)
-	startMessage += fmt.Sprintf("• <b>Version</b>: <code>%s</code>\n", state.WATGBRIDGE_VERSION)
+	startMessage += fmt.Sprintf("  <b>Version</b>: <code>%s</code>\n", state.WATGBRIDGE_VERSION)
 	if len(state.State.Modules) > 0 {
-		startMessage += "• <b>Loaded Modules</b>:\n"
+		startMessage += "  <b>Loaded Modules</b>:\n"
 		for _, module := range state.State.Modules {
-			startMessage += fmt.Sprintf("  - <i>%s</i>\n", html.EscapeString(module))
+			startMessage += fmt.Sprintf("    - %s\n", html.EscapeString(module))
 		}
 	} else {
-		startMessage += "• No Modules Loaded\n"
+		startMessage += "  No Modules Loaded\n"
 	}
 
 	_, err := utils.TgReplyTextByContext(b, c, startMessage, nil)
@@ -227,7 +240,7 @@ func GetWhatsAppGroupsHandler(b *gotgbot.Bot, c *ext.Context) error {
 
 	outputString := ""
 	for groupNum, group := range waGroups {
-		outputString += fmt.Sprintf("%v. %s [ <code>%s</code> ]\n",
+		outputString += fmt.Sprintf("%v. %s: <code>%s</code>\n",
 			groupNum+1, html.EscapeString(group.Name),
 			html.EscapeString(group.JID.String()))
 
@@ -250,8 +263,8 @@ func FindContactHandler(b *gotgbot.Bot, c *ext.Context) error {
 		return nil
 	}
 
-	usageString := "Usage : <code>" + html.EscapeString("/findcontact <search_string>") + "</code>\n"
-	usageString += "Example : <code>/findcontact propheci</code>"
+	usageString := "Usage: <code>" + html.EscapeString("/findcontact <search_string>") + "</code>\n"
+	usageString += "Example: <code>/findcontact propheci</code>"
 
 	args := c.Args()
 	if len(args) <= 1 {
@@ -270,7 +283,7 @@ func FindContactHandler(b *gotgbot.Bot, c *ext.Context) error {
 
 	outputString := fmt.Sprintf("Here are the %v matching contacts:\n\n", resultsCount)
 	for jid, name := range results {
-		outputString += fmt.Sprintf("- <i>%s</i> [ <code>%s</code> ]\n",
+		outputString += fmt.Sprintf("- %s: <code>%s</code>\n",
 			html.EscapeString(name), html.EscapeString(jid))
 
 		if len(outputString) >= 1800 {
@@ -294,28 +307,57 @@ func UpdateAndRestartHandler(b *gotgbot.Bot, c *ext.Context) error {
 
 	cfg := state.State.Config
 
-	gitPullCmd := exec.Command(cfg.GitExecutable, "pull", "--rebase")
-	err := gitPullCmd.Run()
-	if err != nil {
-		return utils.TgReplyWithErrorByContext(b, c, "Failed to execute 'git pull --rebase' command", err)
-	}
-	utils.TgReplyTextByContext(b, c, "Successfully pulled from GitHub", nil)
+	if cfg.UseGithHubBinaries {
+		if cfg.Architecture == "" {
+			return utils.TgReplyWithErrorByContext(b, c,
+				"Please set an architecture field in config file\nCan be 'amd64' or 'aarch64'",
+				nil)
+		}
 
-	goBuildCmd := exec.Command(cfg.GoExecutable, "build")
-	err = goBuildCmd.Run()
-	if err != nil {
-		return utils.TgReplyWithErrorByContext(b, c, "Failed to execute 'go build' command", err)
+		RELEASE_URL_FORMAT := "https://github.com/akshettrj/watgbridge/releases/latest/download/watgbridge_linux_%s"
+
+		url := fmt.Sprintf(RELEASE_URL_FORMAT, cfg.Architecture)
+		err := utils.DownloadFileToLocalByURL("watgbridge_temp", url)
+		if err != nil {
+			return utils.TgReplyWithErrorByContext(b, c, "Failed to download the release", err)
+		}
+
+		err = os.Rename("watgbridge_temp", "watgbridge")
+		if err != nil {
+			return utils.TgReplyWithErrorByContext(b, c, "Failed to rename the downloaded file", err)
+		}
+
+		err = os.Chmod("watgbridge", 0755)
+		if err != nil {
+			return utils.TgReplyWithErrorByContext(b, c, "Failed to make the file executable", err)
+		}
+
+		utils.TgReplyTextByContext(b, c, "Successfully downloaded and prepared the release, now restarting...", nil)
+
+	} else {
+		gitPullCmd := exec.Command(cfg.GitExecutable, "pull", "--rebase")
+		err := gitPullCmd.Run()
+		if err != nil {
+			return utils.TgReplyWithErrorByContext(b, c, "Failed to execute 'git pull --rebase' command", err)
+		}
+
+		utils.TgReplyTextByContext(b, c, "Successfully pulled from GitHub", nil)
+
+		goBuildCmd := exec.Command(cfg.GoExecutable, "build")
+		err = goBuildCmd.Run()
+		if err != nil {
+			return utils.TgReplyWithErrorByContext(b, c, "Failed to execute 'go build' command", err)
+		}
+
+		utils.TgReplyTextByContext(b, c, "Successfully built the binary, now restarting...", nil)
+
 	}
-	utils.TgReplyTextByContext(b, c, "Successfully built the binary, now restarting...", nil)
 
 	os.Setenv("WATG_IS_RESTARTED", "1")
 	os.Setenv("WATG_CHAT_ID", fmt.Sprint(c.EffectiveChat.Id))
 	os.Setenv("WATG_MESSAGE_ID", fmt.Sprint(c.EffectiveMessage.MessageId))
-	if c.EffectiveMessage.IsTopicMessage {
-		os.Setenv("WATG_THREAD_ID", fmt.Sprint(c.EffectiveMessage.MessageThreadId))
-	}
 
-	err = syscall.Exec(path.Join(".", "watgbridge"), []string{}, os.Environ())
+	err := syscall.Exec(path.Join(".", "watgbridge"), []string{}, os.Environ())
 	if err != nil {
 		return utils.TgReplyWithErrorByContext(b, c, "Failed to run exec syscall to restart the bot", err)
 	}
@@ -328,7 +370,7 @@ func SyncContactsHandler(b *gotgbot.Bot, c *ext.Context) error {
 		return nil
 	}
 
-	utils.TgReplyTextByContext(b, c, "Starting syncing contacts... may take some time", nil)
+	utils.TgReplyTextByContext(b, c, "Starting syncing contacts...", nil)
 
 	waClient := state.State.WhatsAppClient
 
@@ -451,12 +493,91 @@ func SetTargetGroupChatHandler(b *gotgbot.Bot, c *ext.Context) error {
 	return err
 }
 
+func UnlinkThreadHandler(b *gotgbot.Bot, c *ext.Context) error {
+	if !utils.TgUpdateIsAuthorized(b, c) {
+		return nil
+	}
+
+	if !c.EffectiveMessage.IsTopicMessage || c.EffectiveMessage.MessageThreadId == 0 {
+		_, err := utils.TgReplyTextByContext(b, c, "The command should be sent in a topic", nil)
+		return err
+	}
+
+	var (
+		tgChatId   = c.EffectiveChat.Id
+		tgThreadId = c.EffectiveMessage.MessageThreadId
+	)
+
+	waChatId, err := database.ChatThreadGetWaFromTg(tgChatId, tgThreadId)
+	if err != nil {
+		err = utils.TgReplyWithErrorByContext(b, c, "Failed to get existing chat ID pairing", err)
+		return err
+	} else if waChatId == "" {
+		_, err := utils.TgReplyTextByContext(b, c, "No existing chat pairing found!!", nil)
+		return err
+	}
+
+	err = database.ChatThreadDropPairByTg(tgChatId, tgThreadId)
+	if err != nil {
+		err = utils.TgReplyWithErrorByContext(b, c, "Failed to delete the thread chat pairing", err)
+		return err
+	}
+
+	_, err = utils.TgReplyTextByContext(b, c, "Successfully unlinked", nil)
+	return err
+}
+
+func handleBlockUnblockUser(b *gotgbot.Bot, c *ext.Context, action events.BlocklistChangeAction) error {
+	if !utils.TgUpdateIsAuthorized(b, c) {
+		return nil
+	}
+	if !c.EffectiveMessage.IsTopicMessage || c.EffectiveMessage.MessageThreadId == 0 {
+		_, err := utils.TgReplyTextByContext(b, c, "The command should be sent in a topic", nil)
+		return err
+	}
+
+	var (
+		tgChatId   = c.EffectiveChat.Id
+		tgThreadId = c.EffectiveMessage.MessageThreadId
+	)
+
+	waChatId, err := database.ChatThreadGetWaFromTg(tgChatId, tgThreadId)
+	if err != nil {
+		err = utils.TgReplyWithErrorByContext(b, c, "Failed to get existing chat ID pairing", err)
+		return err
+	} else if waChatId == "" {
+		_, err := utils.TgReplyTextByContext(b, c, "No existing chat pairing found!!", nil)
+		return err
+	}
+	jid, _ := utils.WaParseJID(waChatId)
+	_, err = state.State.WhatsAppClient.UpdateBlocklist(jid, action)
+	if err != nil {
+		err = utils.TgReplyWithErrorByContext(b, c, "Failed to change the blocklist status", err)
+		return err
+	}
+	actionText := "blocked"
+	if action == events.BlocklistChangeActionUnblock {
+		actionText = "unblocked"
+	}
+
+	_, err = utils.TgReplyTextByContext(b, c, fmt.Sprintf("Successfully %s the user", actionText), nil)
+	return err
+}
+
+func BlockCommandHandler(b *gotgbot.Bot, c *ext.Context) error {
+	return handleBlockUnblockUser(b, c, events.BlocklistChangeActionBlock)
+}
+
+func UnblockCommandHandler(b *gotgbot.Bot, c *ext.Context) error {
+	return handleBlockUnblockUser(b, c, events.BlocklistChangeActionUnblock)
+}
+
 func SetTargetPrivateChatHandler(b *gotgbot.Bot, c *ext.Context) error {
 	if !utils.TgUpdateIsAuthorized(b, c) {
 		return nil
 	}
 
-	usageString := "Usage: (Send in a topic) <code>" + html.EscapeString("/settargetprivatechat <user_id>") + "</code>"
+	usageString := "Usage (Send in a topic): <code>" + html.EscapeString("/settargetprivatechat <user_id>") + "</code>"
 
 	args := c.Args()
 	if len(args) <= 1 {
@@ -591,7 +712,7 @@ func HelpCommandHandler(b *gotgbot.Bot, c *ext.Context) error {
 	helpString := "Here are the available commands:\n\n"
 
 	for _, command := range state.State.TelegramCommands {
-		helpString += fmt.Sprintf("- <code>/%s</code> : %s\n",
+		helpString += fmt.Sprintf("- <code>/%s</code>: %s\n",
 			command.Command, html.EscapeString(command.Description))
 	}
 
@@ -604,8 +725,8 @@ func SendToWhatsAppHandler(b *gotgbot.Bot, c *ext.Context) error {
 		return nil
 	}
 
-	usageString := "Usage : Reply to a message, <code>" + html.EscapeString("/send <target_id>") + "</code>\n"
-	usageString += "Example : <code>/send 911234567890</code>"
+	usageString := "Usage: Reply to a message, <code>" + html.EscapeString("/send <target_id>") + "</code>\n"
+	usageString += "Example: <code>/send 911234567890</code>"
 
 	args := c.Args()
 	if len(args) <= 1 || c.EffectiveMessage.ReplyToMessage == nil || c.EffectiveMessage.ReplyToMessage.ForumTopicCreated != nil {
@@ -635,7 +756,7 @@ func RevokeCommandHandler(b *gotgbot.Bot, c *ext.Context) error {
 		return nil
 	}
 
-	usageString := "Usage : Reply to a message, <code>/revoke</code>"
+	usageString := "Usage: Reply to a message, <code>/revoke</code>"
 
 	if c.EffectiveMessage.ReplyToMessage == nil || c.EffectiveMessage.ReplyToMessage.ForumTopicClosed != nil {
 		_, err := utils.TgReplyTextByContext(b, c, usageString, nil)
@@ -660,7 +781,7 @@ func RevokeCommandHandler(b *gotgbot.Bot, c *ext.Context) error {
 		return utils.TgReplyWithErrorByContext(b, c, "failed to revoke message", err)
 	}
 
-	_, err = utils.TgReplyTextByContext(b, c, "<i>Successfully revoked</i>", nil)
+	_, err = utils.TgReplyTextByContext(b, c, "Successfully revoked", nil)
 	return err
 }
 
@@ -713,7 +834,7 @@ func RevokeCallbackHandler(b *gotgbot.Bot, c *ext.Context) error {
 			_, err := waClient.SendMessage(context.Background(), chatJid, revokeMesssage)
 			if err != nil {
 				_, err = cq.Answer(b, &gotgbot.AnswerCallbackQueryOpts{
-					Text:      "Failed to send revoke message : " + err.Error(),
+					Text:      "Failed to send revoke message: " + err.Error(),
 					ShowAlert: true,
 					CacheTime: 60,
 				})
@@ -724,7 +845,7 @@ func RevokeCallbackHandler(b *gotgbot.Bot, c *ext.Context) error {
 					ShowAlert: true,
 					CacheTime: 60,
 				})
-				b.EditMessageText("<i>Revoked</i>", &gotgbot.EditMessageTextOpts{
+				b.EditMessageText("Revoked", &gotgbot.EditMessageTextOpts{
 					ChatId:    c.EffectiveChat.Id,
 					MessageId: c.EffectiveMessage.MessageId,
 					ReplyMarkup: gotgbot.InlineKeyboardMarkup{

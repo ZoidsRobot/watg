@@ -1,15 +1,28 @@
-FROM golang:1.19.8-alpine AS build
+# BASE IMAGE
+FROM golang:1-alpine
 
-RUN apk --no-cache add gcc g++ make git libwebp-dev libwebp-tools ffmpeg imagemagick
+# INSTALL DEPS
+RUN apk --no-cache add \
+                   go \
+                   gcc \
+                   g++ \
+                   make \
+                   git \
+                   libwebp-dev \
+                   libwebp-tools \
+                   tzdata \
+                   ffmpeg \
+                   imagemagick
+
+# SET WORKDIR
 WORKDIR /go/src/watgbridge
-COPY go.mod go.sum ./
-RUN go mod download
 
+# COPY ALL FILES/FOLDERS
 COPY . ./
+
+# BUILD
+RUN go mod download
 RUN go build
 
-FROM alpine
-RUN apk --no-cache add tzdata libwebp-tools ffmpeg imagemagick
-WORKDIR /go/src/watgbridge
-COPY --from=build /go/src/watgbridge/watgbridge .
+# RUN
 CMD ["./watgbridge"]
